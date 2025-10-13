@@ -1,104 +1,72 @@
-# Gemini-CLI Telegram Bot
+# 🚀 Gemini-CLI Telegram Bot
 
-You can remotely control a coding agent using telegram. Creating and maintaining software projects.
+![Python](https://img.shields.io/badge/python-3.6%2B-blue?logo=python)
+![License](https://img.shields.io/badge/license-MIT-green)
+![Gemini CLI](https://img.shields.io/badge/gemini--cli-required-important?logo=google)
 
-This is a Python-based Telegram bot that acts as a remote interface for the Gemini CLI. It allows a user to interact with the Gemini agent from a Telegram chat, including managing project contexts, executing prompts, and monitoring file system changes in real-time.
+_Remotely control a coding agent using Telegram for creating and maintaining software projects!_
 
-## Features
+---
 
-- **Remote Gemini CLI Interaction:** Send prompts to the Gemini CLI from anywhere using Telegram.
-- **Asynchronous Operation:** Gemini CLI commands are executed as non-blocking background processes, allowing the bot to remain responsive.
-- **Project Context Management:**
-    - Switch between different project directories.
-    - Create new projects on the fly.
-- **Intelligent Context Refinement:** A user-controlled workflow to keep project requirements (`GEMINI.md`) concise and up-to-date.
-- **Proactive Reminders:** The bot periodically suggests refining the context to prevent bloat after a certain number of prompts.
-- **Real-time File System Monitoring:** The bot monitors the current project directory for file changes (creations, deletions, modifications) and sends instant notifications to your chat.
-- **Automatic File Content Display:** When the Gemini agent's response includes a filename in backticks (e.g., `` `app.py` ``), the bot will automatically send the content of that file to the chat.
-- **File Access:** Download files directly from the current project context.
-- **Secure:** The bot is restricted to a single, authorized Telegram user ID for security.
-- **State Persistence:** The bot remembers the current project context for each chat across restarts.
-- **Comprehensive Logging:** Bot activities are logged to `telegram-bot.log` for debugging and monitoring.
+## ✨ Features
 
-## How It Works
+- 🛰️ **Remote Gemini CLI Interaction:**  
+  Send prompts to the Gemini CLI from anywhere using Telegram.
+- ⚡ **Asynchronous Operation:**  
+  Gemini CLI commands run in the background—no waiting around!
+- 🗂️ **Project Context Management:**  
+  Switch between project directories or create new ones on the fly.
+- 🤖 **Intelligent Context Refinement:**  
+  Keep `GEMINI.md` concise and up-to-date with AI suggestions.
+- ⏰ **Proactive Reminders:**  
+  The bot suggests refining the context after a set number of prompts.
+- 🖥️ **Real-time File System Monitoring:**  
+  Get instant notifications when project files change.
+- 📂 **Automatic File Content Display:**  
+  The bot auto-sends file contents when a filename is referenced.
+- 📥 **File Access:**  
+  Download files directly from Telegram.
+- 🔒 **Secure:**  
+  Only an authorized Telegram user can interact with the bot.
+- 💾 **State Persistence:**  
+  The bot remembers your project context across restarts.
+- 📝 **Comprehensive Logging:**  
+  Activities are logged to `telegram-bot.log`.
 
-The bot runs as a long-polling service that fetches updates from the Telegram API. When a message is received from the authorized user, it is processed based on whether it's a command or a prompt. Prompts are forwarded to the `gemini-cli` executable running as a background process within the selected project directory. A file system observer watches for any changes made by the agent and reports them back to the user instantly.
+---
 
-## Operating Mode
+## 🛠 How It Works
 
-By default the project run in YOLO (you only live once!) mode with the agent operating autonomously with all privileges enabled taking directives from /requirement directive.
+The bot runs as a long-polling service, fetching updates from the Telegram API and processing messages from the authorized user. Commands are recognized by a `/` prefix; all other messages are sent as prompts to the Gemini CLI.
 
-### Context Management
+---
 
-This bot uses a two-file system to manage project context effectively:
+## 💡 Operating Mode
 
-- **`GEMINI.md`:** This is the core requirements file for the coding agent. It's intended to be a concise, up-to-date source of truth for the project's goals. Every user prompt and accepted agent suggestion is appended to this file.
-- **`project_conversation.log`:** A raw, chronological log of all interactions (user prompts and agent responses) for debugging and historical reference.
+- **YOLO Mode:**  
+  By default, the agent operates autonomously, taking directives from the `/requirement` command.
+- **Context Management:**  
+  Uses a two-file system:
+  - `GEMINI.md`: The source of truth for project requirements.
+  - `project_conversation.log`: A raw log of all prompts and responses.
 
-The `/context` command is designed to help you maintain the quality of the `GEMINI.md` file by using the AI to consolidate and refine its content.
+Refine your `GEMINI.md` using the `/context` command for a high-quality project spec!
 
-## Prerequisites
+---
 
-- Python 3.6+
-- The [Gemini CLI](https://github.com/google/gemini-cli) must be installed and available in your system's PATH.
-- An active internet connection.
+## 🧰 Prerequisites
 
-## Installation & Setup
+- Python **3.6+**
+- [Gemini CLI](https://github.com/google/gemini-cli) installed and in your PATH
+- Active internet connection
 
-1.  **Clone the repository:**
-    ```bash
-    git clone https://github.com/your-username/Gemini-CLI-Telegram-Bot.git
-    cd Gemini-CLI-Telegram-Bot
-    ```
+---
 
-2.  **Create a virtual environment (recommended):**
-    ```bash
-    python -m venv venv
-    source venv/bin/activate  # On Windows, use `venv\Scripts\activate`
-    ```
+## 🚦 Installation & Setup
 
-3.  **Install dependencies:**
-    ```bash
-    pip install -r requirements.txt
-    ```
-
-4.  **Create a `.env` file** in the root of the project directory and add your configuration details.
-
-## Configuration
-
-The bot is configured through a `.env` file. The following variables are required:
-
--   `TELEGRAM_BOT_TOKEN`: Your Telegram bot token obtained from BotFather.
--   `AUTHORIZED_USER_ID`: Your numerical Telegram user ID. This is for security, ensuring only you can use the bot.
-
-**Example `.env` file:**
-```env
-TELEGRAM_BOT_TOKEN="1234567890:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
-AUTHORIZED_USER_ID="123456789"
-```
-
-The following paths are configured automatically but can be reviewed in `app.py`:
--   `PROJECTS_DIR`: The base directory where all projects are stored. Defaults to a subdirectory named `projects`.
--   `GEMINI_SETTINGS_FILE`: The path to the Gemini settings file (`~/.gemini/settings.json`) to be copied into new projects.
-
-## Usage
-
-To start the bot, simply run the `app.py` script:
 ```bash
-python app.py
-```
-The bot will start polling for messages. You can interact with it from the Telegram chat associated with your `AUTHORIZED_USER_ID`.
-
-## Commands
-
--   `/set_project <project_name> [initial_prompt]`: Sets the current working directory to an existing project. You can optionally provide an initial prompt to be executed immediately.
--   `/new_project <project_name> [initial_prompt]`: Creates a new project directory and sets it as the current context.
--   `/file <filename>`: Sends the specified file from the current project directory to the chat.
--   `/current_project`: Displays the path of the current project context.
--   `/context`: Initiates the workflow to refine the `GEMINI.md` file. The bot will send the current version, propose an AI-consolidated version, and you can then **Accept**, **Suggest Edits**, **Decline**, or **Upload** your own version.
-
-Any message that is not a command is treated as a prompt to the Gemini CLI.
-
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+git clone https://github.com/your-username/Gemini-CLI-Telegram-Bot.git
+cd Gemini-CLI-Telegram-Bot
+python -m venv venv
+source venv/bin/activate    # On Windows, use: venv\Scripts\activate
+pip install -r requirements.txt
