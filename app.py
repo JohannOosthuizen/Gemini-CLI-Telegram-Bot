@@ -30,6 +30,7 @@
 # ==============================================================================
 
 import os
+import os
 import sys
 import json
 import logging
@@ -80,7 +81,7 @@ logging.basicConfig(
     format="[%(asctime)s] %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
     handlers=[
-        logging.FileHandler(LOG_FILE, mode='w'),
+        logging.FileHandler(LOG_FILE, mode='w', encoding='utf-8'),
         logging.StreamHandler(sys.stdout)
     ]
 )
@@ -139,6 +140,12 @@ def send_message(chat_id, text, parse_mode="Markdown"):
 def send_file(chat_id, file_path):
     """Sends a file to a Telegram chat."""
     logging.info(f"Sending file to Chat ID: {chat_id}, File: {file_path}")
+    file_path = Path(file_path)  # Ensure file_path is a Path object
+    if not file_path.is_file():
+        logging.error(f"File not found for sending: {file_path}")
+        send_message(chat_id, f"Error: Could not find file `{file_path.name}` on the server.")
+        return
+        
     try:
         with open(file_path, 'rb') as f:
             files = {'document': f}
@@ -150,11 +157,9 @@ def send_file(chat_id, file_path):
                 logging.info(f"Successfully sent file to Chat ID: {chat_id}.")
             else:
                 logging.error(f"Error in Telegram API response when sending file: {response_json}")
-    except FileNotFoundError:
-        logging.error(f"File not found for sending: {file_path}")
-        send_message(chat_id, f"Error: Could not find file `{file_path}` on the server.")
     except requests.exceptions.RequestException as e:
         logging.error(f"Error sending file to Chat ID: {chat_id}. Request failed: {e}")
+        send_message(chat_id, f"An error occurred while sending the file `{file_path.name}`.")
 
 # --- Command Handlers ---
 
@@ -221,21 +226,82 @@ def handle_new_project(chat_id, text, state):
 def handle_get_file(chat_id, text, state):
     """Handles the /file command."""
     parts = text.split()
-    if len(parts) < 2:
-        send_message(chat_id, "Usage: `/file <filename>`")
-        return
-    filename = parts[1]
     project_context = state["contexts"].get(str(chat_id))
 
     if not project_context:
         send_message(chat_id, "No project context set. Please use `/set_project <project_name>` first.")
         return
 
+    if len(parts) < 2:
+        # No filename provided, show file buttons
+        try:
+            files = [f for f in os.listdir(project_context) if os.path.isfile(os.path.join(project_context, f))]
+            if not files:
+                send_message(chat_id, "No files found in the current project.")
+                return
+
+            keyboard = {
+                "inline_keyboard": [[{"text": f, "callback_data": f"file:{f}"}] for f in files]
+            }
+            payload = {
+                'chat_id': chat_id,
+                'text': "Select a file to view:",
+                'reply_markup': json.dumps(keyboard)
+            }
+            response = requests.post(f"{TELEGRAM_API_URL}/sendMessage", data=payload, timeout=30)
+            response.raise_for_status()
+        except Exception as e:
+            logging.error(f"Error creating file list: {e}")
+            send_message(chat_id, "An error occurred while listing files.")
+        return
+
+    filename = parts[1]
     file_path = Path(project_context) / filename
     if file_path.is_file():
-        send_file(chat_id, file_path)
+        send_file_with_content(chat_id, file_path)
     else:
         send_message(chat_id, f"Error: File `{filename}` not found in the current project.")
+
+def send_file_with_content(chat_id, file_path):
+    """Sends the file content in a code block and as a file attachment."""
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        # Escape for HTML <pre><code> block
+        escaped_content = content.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+        
+        max_len = 4080 # Max length for content inside <pre><code> tags
+        for i in range(0, len(escaped_content), max_len):
+            chunk = escaped_content[i:i + max_len]
+            send_message(chat_id, f"<pre><code>{chunk}</code></pre>", "HTML")
+
+        send_file(chat_id, file_path)
+    except Exception as e:
+        logging.error(f"Error sending file with content: {e}")
+        send_message(chat_id, f"An error occurred while sending the file: {e}")
+
+def handle_callback_query(callback_query, state):
+    """Handles callback queries from inline keyboards."""
+    callback_id = callback_query['id']
+    chat_id = str(callback_query['message']['chat']['id'])
+    data = callback_query['data']
+
+    if data.startswith("file:"):
+        filename = data.split(":", 1)[1]
+        project_context = state["contexts"].get(chat_id)
+        if project_context:
+            file_path = Path(project_context) / filename
+            if file_path.is_file():
+                send_file_with_content(chat_id, file_path)
+            else:
+                send_message(chat_id, f"Error: File `{filename}` no longer exists.")
+        else:
+            send_message(chat_id, "Error: Project context not found.")
+    
+    # Answer the callback query to remove the "loading" state
+    requests.post(f"{TELEGRAM_API_URL}/answerCallbackQuery", data={'callback_query_id': callback_id})
+
 
 def update_gemini_md(project_path, user_request=None, agent_response=None):
     """Appends user requirements and agent suggestions to GEMINI.md."""
@@ -604,6 +670,12 @@ def main():
                 update_id = update['update_id']
                 state["last_update_id"] = update_id # Process one by one
 
+                if 'callback_query' in update:
+                    handle_callback_query(update['callback_query'], state)
+                    state["last_update_id"] = update['update_id']
+                    save_state(state)
+                    continue
+
                 if 'message' not in update:
                     continue
                 
@@ -692,7 +764,7 @@ def main():
                     handle_set_project(chat_id, text, state)
                 elif text.startswith("/new_project"):
                     handle_new_project(chat_id, text, state)
-                elif text.startswith("/file"):
+                elif text.startswith("/file") or text.startswith("/f"):
                     handle_get_file(chat_id, text, state)
                 elif text == "/context":
                     handle_context_command(chat_id, state)
