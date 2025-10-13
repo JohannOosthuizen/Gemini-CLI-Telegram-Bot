@@ -1,5 +1,7 @@
 # Gemini-CLI Telegram Bot
 
+You can remotely control a coding agent using telegram. Creating and maintaining software projects.
+
 This is a Python-based Telegram bot that acts as a remote interface for the Gemini CLI. It allows a user to interact with the Gemini agent from a Telegram chat, including managing project contexts, executing prompts, and monitoring file system changes in real-time.
 
 ## Features
@@ -21,6 +23,10 @@ This is a Python-based Telegram bot that acts as a remote interface for the Gemi
 ## How It Works
 
 The bot runs as a long-polling service that fetches updates from the Telegram API. When a message is received from the authorized user, it is processed based on whether it's a command or a prompt. Prompts are forwarded to the `gemini-cli` executable running as a background process within the selected project directory. A file system observer watches for any changes made by the agent and reports them back to the user instantly.
+
+## Operating Mode
+
+By default the project run in YOLO (you only live once!) mode with the agent operating autonomously with all privileges enabled taking directives from /requirement directive.
 
 ### Context Management
 
