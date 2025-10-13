@@ -92,17 +92,18 @@ def load_state():
     """Loads the bot state from the context file."""
     if not Path(CONTEXT_FILE).exists():
         logging.info(f"Context file not found. Creating a new one at: {CONTEXT_FILE}")
-        return {"contexts": {}, "last_update_id": 0, "prompt_counters": {}, "context_workflows": {}}
+        return {"contexts": {}, "last_update_id": 0, "prompt_counters": {}, "context_workflows": {}, "awaiting_input": {}}
     try:
         with open(CONTEXT_FILE, 'r') as f:
             state = json.load(f)
             # Ensure all keys are present for backward compatibility
             state.setdefault("prompt_counters", {})
             state.setdefault("context_workflows", {})
+            state.setdefault("awaiting_input", {})
             return state
     except (json.JSONDecodeError, FileNotFoundError):
         logging.error(f"Could not read or parse {CONTEXT_FILE}. Starting fresh.")
-        return {"contexts": {}, "last_update_id": 0, "prompt_counters": {}, "context_workflows": {}}
+        return {"contexts": {}, "last_update_id": 0, "prompt_counters": {}, "context_workflows": {}, "awaiting_input": {}}
 
 def save_state(state):
     """Saves the bot state to the context file."""
@@ -163,16 +164,10 @@ def send_file(chat_id, file_path):
 
 # --- Command Handlers ---
 
-def handle_set_project(chat_id, text, state):
-    """Handles the /set_project command."""
-    parts = text.split()
-    if len(parts) < 2:
-        send_message(chat_id, "Usage: `/set_project <project_name> [initial_prompt]`")
-        return
-    project_name = parts[1]
-    initial_prompt = " ".join(parts[2:])
+def set_project(chat_id, project_name, state, initial_prompt=None):
+    """Sets the project context for a given chat and returns status and message."""
     project_path = Path(PROJECTS_DIR) / project_name
-    logging.info(f"Checking if project path exists: {project_path}")
+    logging.info(f"Attempting to set project path to: {project_path}")
 
     if project_path.is_dir():
         state["contexts"][str(chat_id)] = str(project_path)
@@ -180,23 +175,53 @@ def handle_set_project(chat_id, text, state):
         if not gemini_md_path.exists():
             gemini_md_path.write_text("# Project Requirements\n\n", encoding='utf-8')
             logging.info(f"Created GEMINI.md for existing project at: {project_path}")
-        send_message(chat_id, f"Project context set to: `{project_path}`")
+        
         start_file_observer(chat_id, str(project_path))
 
         if initial_prompt:
             logging.info(f"Handling initial prompt for selected project: {initial_prompt}")
             handle_gemini_prompt(chat_id, initial_prompt, state)
+        
+        message_text = f"Project context set to: `{project_path}`"
+        return True, message_text
     else:
-        send_message(chat_id, f"Error: Project `{project_name}` not found in `{PROJECTS_DIR}`.")
+        message_text = f"Error: Project `{project_name}` not found in `{PROJECTS_DIR}`."
+        return False, message_text
 
-def handle_new_project(chat_id, text, state):
-    """Handles the /new_project command."""
+def handle_set_project(chat_id, text, state):
+    """Handles the /set_project command."""
     parts = text.split()
     if len(parts) < 2:
-        send_message(chat_id, "Usage: `/new_project <project_name> [initial_prompt]`")
+        # List projects as buttons
+        try:
+            projects = [d for d in os.listdir(PROJECTS_DIR) if (PROJECTS_DIR / d).is_dir()]
+            if not projects:
+                send_message(chat_id, "No projects found.")
+                return
+
+            keyboard = {
+                "inline_keyboard": [[{"text": p, "callback_data": f"set_project:{p}"}] for p in projects]
+            }
+            keyboard["inline_keyboard"].append([{"text": "➕ New Project", "callback_data": "new_project_prompt"}])
+            payload = {
+                'chat_id': chat_id,
+                'text': "Select a project:",
+                'reply_markup': json.dumps(keyboard)
+            }
+            response = requests.post(f"{TELEGRAM_API_URL}/sendMessage", data=payload, timeout=30)
+            response.raise_for_status()
+        except Exception as e:
+            logging.error(f"Error creating project list: {e}")
+            send_message(chat_id, "An error occurred while listing projects.")
         return
+
     project_name = parts[1]
     initial_prompt = " ".join(parts[2:])
+    success, message = set_project(chat_id, project_name, state, initial_prompt)
+    send_message(chat_id, message)
+
+def create_new_project(chat_id, project_name, state, initial_prompt=None):
+    """Creates a new project directory and sets it as the current context."""
     project_path = Path(PROJECTS_DIR) / project_name
     logging.info(f"Checking if project path exists: {project_path}")
 
@@ -222,6 +247,16 @@ def handle_new_project(chat_id, text, state):
         except OSError as e:
             logging.error(f"Failed to create project directory {project_path}: {e}")
             send_message(chat_id, f"Error: Could not create project directory. Check server permissions.")
+
+def handle_new_project(chat_id, text, state):
+    """Handles the /new_project command."""
+    parts = text.split()
+    if len(parts) < 2:
+        send_message(chat_id, "Usage: `/new_project <project_name> [initial_prompt]`")
+        return
+    project_name = parts[1]
+    initial_prompt = " ".join(parts[2:])
+    create_new_project(chat_id, project_name, state, initial_prompt)
 
 def handle_get_file(chat_id, text, state):
     """Handles the /file command."""
@@ -286,6 +321,7 @@ def handle_callback_query(callback_query, state):
     callback_id = callback_query['id']
     chat_id = str(callback_query['message']['chat']['id'])
     data = callback_query['data']
+    message_id = callback_query['message']['message_id']
 
     if data.startswith("file:"):
         filename = data.split(":", 1)[1]
@@ -298,6 +334,28 @@ def handle_callback_query(callback_query, state):
                 send_message(chat_id, f"Error: File `{filename}` no longer exists.")
         else:
             send_message(chat_id, "Error: Project context not found.")
+    elif data.startswith("set_project:"):
+        project_name = data.split(":", 1)[1]
+        success, message = set_project(chat_id, project_name, state)
+        
+        # Edit the original message (which had the buttons)
+        payload = {
+            'chat_id': chat_id,
+            'message_id': message_id,
+            'text': message, # Use the message from set_project
+            'parse_mode': 'Markdown'
+        }
+        requests.post(f"{TELEGRAM_API_URL}/editMessageText", data=payload)
+    elif data == "new_project_prompt":
+        state.setdefault("awaiting_input", {})[chat_id] = "new_project_name"
+        
+        # Edit the original message to ask for project name
+        payload = {
+            'chat_id': chat_id,
+            'message_id': message_id,
+            'text': "Please enter the name for the new project:",
+        }
+        requests.post(f"{TELEGRAM_API_URL}/editMessageText", data=payload)
     
     # Answer the callback query to remove the "loading" state
     requests.post(f"{TELEGRAM_API_URL}/answerCallbackQuery", data={'callback_query_id': callback_id})
@@ -755,12 +813,31 @@ def main():
                     save_state(state)
                     continue
 
+                text = message.get('text', '')
+
+                # --- Awaiting Input Handler ---
+                awaiting_input_type = state.get("awaiting_input", {}).get(chat_id)
+                if awaiting_input_type:
+                    if not text.startswith('/'):
+                        del state["awaiting_input"][chat_id]  # Consume it
+                        if awaiting_input_type == "new_project_name":
+                            project_name = text.strip()
+                            if project_name:
+                                create_new_project(chat_id, project_name, state)
+                            else:
+                                send_message(chat_id, "Invalid project name. Operation cancelled.")
+                            save_state(state)
+                            continue
+                    else:  # User sent a command, cancel awaiting input
+                        del state["awaiting_input"][chat_id]
+                        send_message(chat_id, "Operation cancelled.")
+                        # Let it fall through to command processing
+
                 # --- Standard Command Dispatcher ---
-                text = message.get('text')
                 if not text:
                     continue
 
-                if text.startswith("/set_project"):
+                if text.startswith("/set_project") or text.startswith("/p"):
                     handle_set_project(chat_id, text, state)
                 elif text.startswith("/new_project"):
                     handle_new_project(chat_id, text, state)
