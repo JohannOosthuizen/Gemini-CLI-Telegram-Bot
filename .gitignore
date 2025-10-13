@@ -1,0 +1,4 @@
+*.env
+project_contexts.json
+/projects
+telegram-bot.log
