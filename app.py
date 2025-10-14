@@ -123,6 +123,40 @@ def format_for_telegram(text):
     text = re.sub(r'^### (.*?)$', r'*\1*', text, flags=re.MULTILINE)
     return text
 
+def break_sentences_into_lines(text):
+    """Adds a newline after each sentence, preserving code blocks."""
+    if not text:
+        return ""
+    
+    parts = re.split(r'(```[\s\S]*?```)', text)
+    for i in range(0, len(parts), 2):
+        part = parts[i]
+        # Use a lookbehind to keep the punctuation, and replace the following space with a newline.
+        part = re.sub(r'(?<=[.!?])\s+', '\n', part)
+        parts[i] = part
+        
+    return "".join(parts)
+
+def format_for_telegram_paragraphs(text):
+    """
+    Ensures text has proper paragraph spacing for Telegram Markdown,
+    while preserving code blocks.
+    """
+    if not text:
+        return ""
+    
+    # Process text outside of code blocks
+    parts = re.split(r'(```[\s\S]*?```)', text)
+    for i in range(0, len(parts), 2):
+        part = parts[i]
+        # Replace single newlines with double, then collapse excessive newlines.
+        # This effectively creates paragraphs from single-newline-separated text.
+        part = part.replace('\n', '\n\n')
+        part = re.sub(r'\n{3,}', '\n\n', part)
+        parts[i] = part
+    
+    return "".join(parts)
+
 def send_message(chat_id, text, parse_mode="Markdown"):
     """Sends a text message to a Telegram chat."""
     logging.info(f"Sending message to Chat ID: {chat_id}")
@@ -566,31 +600,29 @@ def process_gemini_result(process_info, returncode, stdout, stderr, state):
     if returncode == 0:
         update_gemini_md(project_context, agent_response=telegram_output)
 
-    # Check for filenames in the output to auto-display content
+    # Send the Gemini response first
+    if not telegram_output.strip():
+        send_message(chat_id, "_Gemini CLI returned an empty response._")
+    else:
+        # Break sentences into new lines before formatting paragraphs
+        telegram_output_with_line_breaks = break_sentences_into_lines(telegram_output)
+        formatted_output = format_for_telegram_paragraphs(telegram_output_with_line_breaks)
+        # Send as a regular message with Markdown parsing
+        max_len = 4096  # Max length for a Telegram message
+        for i in range(0, len(formatted_output), max_len):
+            chunk = formatted_output[i:i + max_len]
+            send_message(chat_id, chunk, "Markdown")
+
+    # After sending the response, check for filenames to auto-display content
     match = re.search(r'`([^`\n]+)`', telegram_output)
     if match:
         filename = match.group(1)
         file_path = Path(project_context) / filename
         if file_path.is_file():
-            logging.info(f"Extracted filename '{filename}' and file exists. Reading content.")
-            send_message(chat_id, telegram_output, "Markdown") # Send the original message
-            send_message(chat_id, f"--- Content of {filename} ---", "Markdown")
-            try:
-                telegram_output = file_path.read_text(encoding='utf-8')
-            except IOError as e:
-                telegram_output = f"Could not read content of {filename}: {e}"
+            logging.info(f"Extracted filename '{filename}' from response. Sending file content.")
+            send_file_with_content(chat_id, file_path)
         else:
-            logging.warning(f"File '{filename}' not found at expected path: {file_path}")
-
-    # Send the final output, chunked if necessary
-    if not telegram_output.strip():
-        send_message(chat_id, "_Gemini CLI returned an empty response._")
-    else:
-        # Send as a regular message with Markdown parsing
-        max_len = 4096  # Max length for a Telegram message
-        for i in range(0, len(telegram_output), max_len):
-            chunk = telegram_output[i:i + max_len]
-            send_message(chat_id, chunk, "Markdown")
+            logging.warning(f"File '{filename}' mentioned in response not found at: {file_path}")
 
 def check_running_processes(state):
     """Checks for and handles completed/timed-out Gemini processes."""
