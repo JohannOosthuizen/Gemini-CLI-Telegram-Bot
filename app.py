@@ -207,6 +207,29 @@ def send_file(chat_id, file_path):
         logging.error(f"Error sending file to Chat ID: {chat_id}. Request failed: {e}")
         send_message(chat_id, f"An error occurred while sending the file `{file_path.name}`.")
 
+# --- Icon Helper ---
+
+def get_file_icon(filename):
+    """Returns an icon for a given filename based on its extension."""
+    if filename.endswith('.py'):
+        return "🐍"
+    elif filename.endswith('.md'):
+        return "⭐"
+    elif filename.endswith('.log'):
+        return "📜"
+    elif filename.endswith('.txt'):
+        return "📝"
+    elif filename.endswith('.sh'):
+        return "📜"
+    elif filename.endswith(('.bat', '.cmd', '.exe')):
+        return "🔴"
+    elif filename.endswith('.json'):
+        return "🧩"
+    elif filename.endswith('.env'):
+        return "🔑"
+    else:
+        return "📄"
+
 # --- Command Handlers ---
 
 def set_project(chat_id, project_name, state, initial_prompt=None):
@@ -245,7 +268,7 @@ def handle_set_project(chat_id, text, state):
                 return
 
             keyboard = {
-                "inline_keyboard": [[{"text": p, "callback_data": f"set_project:{p}"}] for p in projects]
+                "inline_keyboard": [[{"text": f"📂 {p}", "callback_data": f"set_project:{p}"}] for p in projects]
             }
             keyboard["inline_keyboard"].append([{"text": "➕ New Project", "callback_data": "new_project_prompt"}])
             payload = {
@@ -405,7 +428,7 @@ def handle_e_command(chat_id, state):
             return
 
         keyboard = {
-            "inline_keyboard": [[{"text": f, "callback_data": f"e_select:{f}"}] for f in files]
+            "inline_keyboard": [[{"text": f"{get_file_icon(f)} {f}", "callback_data": f"e_select:{f}"}] for f in files]
         }
         payload = {
             'chat_id': chat_id,
@@ -437,7 +460,7 @@ def handle_get_file(chat_id, text, state):
                 return
 
             keyboard = {
-                "inline_keyboard": [[{"text": f, "callback_data": f"file:{f}"}] for f in files]
+                "inline_keyboard": [[{"text": f"{get_file_icon(f)} {f}", "callback_data": f"file:{f}"}] for f in files]
             }
             payload = {
                 'chat_id': chat_id,
@@ -544,8 +567,8 @@ def handle_callback_query(callback_query, state):
                 keyboard = {
                     "inline_keyboard": [
                         [
-                            {"text": "Yes", "callback_data": f"e_params_yes:{filename}"},
-                            {"text": "No", "callback_data": f"e_params_no:{filename}"}
+                            {"text": "✅ Yes", "callback_data": f"e_params_yes:{filename}"},
+                            {"text": "❌ No", "callback_data": f"e_params_no:{filename}"}
                         ]
                     ]
                 }
