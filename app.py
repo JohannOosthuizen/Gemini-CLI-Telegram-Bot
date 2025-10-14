@@ -115,12 +115,23 @@ def save_state(state):
 
 # --- Telegram API Helpers ---
 
+def format_for_telegram(text):
+    """Formats text for Telegram's MarkdownV1."""
+    # Headers to bold
+    text = re.sub(r'^# (.*?)$', r'*\1*', text, flags=re.MULTILINE)
+    text = re.sub(r'^## (.*?)$', r'*\1*', text, flags=re.MULTILINE)
+    text = re.sub(r'^### (.*?)$', r'*\1*', text, flags=re.MULTILINE)
+    return text
+
 def send_message(chat_id, text, parse_mode="Markdown"):
     """Sends a text message to a Telegram chat."""
     logging.info(f"Sending message to Chat ID: {chat_id}")
     if not text:
         logging.warning("Attempted to send an empty message. Aborting.")
         return
+
+    if parse_mode == "Markdown":
+        text = format_for_telegram(text)
 
     payload = {
         'chat_id': chat_id,
@@ -298,19 +309,30 @@ def handle_get_file(chat_id, text, state):
         send_message(chat_id, f"Error: File `{filename}` not found in the current project.")
 
 def send_file_with_content(chat_id, file_path):
-    """Sends the file content in a code block and as a file attachment."""
+    """Sends the file content and as a file attachment."""
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
             content = f.read()
         
-        # Escape for HTML <pre><code> block
-        escaped_content = content.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-        
-        max_len = 4080 # Max length for content inside <pre><code> tags
-        for i in range(0, len(escaped_content), max_len):
-            chunk = escaped_content[i:i + max_len]
-            send_message(chat_id, f"<pre><code>{chunk}</code></pre>", "HTML")
+        # Check if it's a Markdown file
+        if file_path.suffix.lower() == '.md':
+            parse_mode = "Markdown"
+            # For Markdown, we don't need to wrap it in code blocks.
+            # We just send the raw content, chunked.
+            max_len = 4096  # Max length for a Telegram message
+            for i in range(0, len(content), max_len):
+                chunk = content[i:i + max_len]
+                send_message(chat_id, chunk, parse_mode)
+        else:
+            # For other files, wrap in a code block
+            parse_mode = "HTML"
+            escaped_content = content.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+            max_len = 4080  # Max length for content inside <pre><code> tags
+            for i in range(0, len(escaped_content), max_len):
+                chunk = escaped_content[i:i + max_len]
+                send_message(chat_id, f"<pre><code>{chunk}</code></pre>", parse_mode)
 
+        # Always send the file as an attachment as well
         send_file(chat_id, file_path)
     except Exception as e:
         logging.error(f"Error sending file with content: {e}")
@@ -564,13 +586,11 @@ def process_gemini_result(process_info, returncode, stdout, stderr, state):
     if not telegram_output.strip():
         send_message(chat_id, "_Gemini CLI returned an empty response._")
     else:
-        # Escape for HTML <pre><code> block
-        escaped_output = telegram_output.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-        
-        max_len = 4080 # Max length for content inside <pre><code> tags
-        for i in range(0, len(escaped_output), max_len):
-            chunk = escaped_output[i:i + max_len]
-            send_message(chat_id, f"<pre><code>{chunk}</code></pre>", "HTML")
+        # Send as a regular message with Markdown parsing
+        max_len = 4096  # Max length for a Telegram message
+        for i in range(0, len(telegram_output), max_len):
+            chunk = telegram_output[i:i + max_len]
+            send_message(chat_id, chunk, "Markdown")
 
 def check_running_processes(state):
     """Checks for and handles completed/timed-out Gemini processes."""
