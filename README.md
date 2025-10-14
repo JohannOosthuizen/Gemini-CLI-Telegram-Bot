@@ -76,7 +76,7 @@ pip install -r requirements.txt
 
 ---
 
-##   Pictures
+##    Pictures
 
 ![Page 1](https://github.com/JohannOosthuizen/Gemini-CLI-Telegram-Bot/blob/main/assets/Page-1.png)
 
