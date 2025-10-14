@@ -503,6 +503,69 @@ def handle_get_file(chat_id, text, state):
     else:
         send_message(chat_id, f"Error: File `{filename}` not found in the current project.")
 
+def handle_download_project(chat_id, state):
+    """Handles the /d command to download the project as a zip file."""
+    project_context = state["contexts"].get(str(chat_id))
+    if not project_context:
+        send_message(chat_id, "No project context set. Please use `/set_project <project_name>` first.")
+        return
+
+    project_path = Path(project_context)
+    project_name = project_path.name
+    archive_path = Path(PROJECTS_DIR) / f"{project_name}.zip"
+
+    try:
+        shutil.make_archive(str(archive_path.with_suffix('')), 'zip', str(project_path))
+        send_message(chat_id, f"Compressing `{project_name}`...")
+        send_file(chat_id, str(archive_path))
+        os.remove(archive_path)
+    except Exception as e:
+        logging.error(f"Error creating project archive: {e}")
+        send_message(chat_id, f"An error occurred while creating the project archive: {e}")
+
+def handle_kill_processes(chat_id):
+    """Handles the /k command to kill gemini and node processes."""
+    killed_processes = []
+    errors = []
+
+    if sys.platform == "win32":
+        processes_to_kill = ["gemini.exe", "node.exe"]
+        for process in processes_to_kill:
+            try:
+                result = subprocess.run(f"taskkill /F /IM {process}", capture_output=True, text=True, check=False)
+                if result.returncode == 0:
+                    killed_processes.append(process)
+                else:
+                    if "not found" not in result.stderr:
+                        errors.append(f"Error killing {process}: {result.stderr}")
+            except Exception as e:
+                errors.append(f"Error killing {process}: {e}")
+    else:  # Linux and macOS
+        processes_to_kill = ["gemini", "node"]
+        for process in processes_to_kill:
+            try:
+                # Use pkill to find and kill processes by name
+                result = subprocess.run(f"pkill -f {process}", capture_output=True, text=True, check=False)
+                if result.returncode == 0:
+                    killed_processes.append(process)
+                else:
+                    # pkill returns 1 if no process is found, which is not an error in this case.
+                    if result.returncode != 1:
+                        errors.append(f"Error killing {process}: {result.stderr}")
+            except Exception as e:
+                errors.append(f"Error killing {process}: {e}")
+
+    response_message = ""
+    if killed_processes:
+        response_message += f"Successfully killed: `{', '.join(killed_processes)}`\n"
+    if errors:
+        response_message += f"Errors: \n`{' '.join(errors)}`\n"
+    if not killed_processes and not errors:
+        response_message = "No running gemini or node processes found to kill."
+
+    send_message(chat_id, response_message)
+
+
 def send_file_with_content(chat_id, file_path):
     """Sends the file content and as a file attachment."""
     try:
@@ -1153,6 +1216,10 @@ def main():
                     handle_get_file(chat_id, text, state)
                 elif text.startswith("/e"):
                     handle_e_command(chat_id, state)
+                elif text.startswith("/d"):
+                    handle_download_project(chat_id, state)
+                elif text.startswith("/k"):
+                    handle_kill_processes(chat_id)
                 elif text == "/context":
                     handle_context_command(chat_id, state)
                 elif text == "/current_project":
