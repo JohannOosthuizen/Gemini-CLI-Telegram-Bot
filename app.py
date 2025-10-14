@@ -30,11 +30,11 @@
 # ==============================================================================
 
 import os
-import os
 import sys
 import json
 import logging
 import re
+import shlex
 import shutil
 import subprocess
 import time
@@ -303,6 +303,122 @@ def handle_new_project(chat_id, text, state):
     initial_prompt = " ".join(parts[2:])
     create_new_project(chat_id, project_name, state, initial_prompt)
 
+
+def execute_file(chat_id, project_context, filename, params):
+    """Executes a file in the project context with optional parameters."""
+    file_path = Path(project_context) / filename
+    if not file_path.is_file():
+        send_message(chat_id, f"Error: File `{filename}` not found.")
+        return
+
+    command = []
+    interpreter = None
+
+    if filename.endswith('.py'):
+        interpreter = sys.executable
+    elif filename.endswith('.sh'):
+        interpreter = 'bash'
+    
+    if interpreter:
+        command.append(interpreter)
+        command.append(str(file_path))
+    elif filename.endswith(('.bat', '.cmd', '.exe')):
+        command.append(str(file_path))
+    else:
+        send_message(chat_id, f"Error: Unsupported file type for execution: `{filename}`")
+        return
+
+    command.extend(params)
+
+    logging.info(f"Executing command: {' '.join(command)}")
+    send_message(chat_id, f"Executing: `{' '.join(command)}`")
+
+    try:
+        process = subprocess.Popen(
+            command,
+            cwd=project_context,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE
+        )
+        
+        stdout_bytes, stderr_bytes = process.communicate(timeout=120) # 2 minute timeout
+        
+        try:
+            stdout = stdout_bytes.decode('utf-8')
+        except UnicodeDecodeError:
+            stdout = stdout_bytes.decode('latin-1', errors='replace')
+
+        try:
+            stderr = stderr_bytes.decode('utf-8')
+        except UnicodeDecodeError:
+            stderr = stderr_bytes.decode('latin-1', errors='replace')
+
+        # Save output to results.txt
+        if stdout or stderr:
+            results_file_path = Path(project_context) / "results.txt"
+            try:
+                with open(results_file_path, 'w', encoding='utf-8') as f:
+                    if stdout:
+                        f.write("--- STDOUT ---\n")
+                        f.write(stdout)
+                        f.write("\n")
+                    if stderr:
+                        f.write("--- STDERR ---\n")
+                        f.write(stderr)
+                logging.info(f"Execution output saved to {results_file_path}")
+            except IOError as e:
+                logging.error(f"Failed to write to results.txt: {e}")
+
+        output = ""
+        if stdout:
+            output += f"*Output:*\n```\n{stdout.strip()}\n```\n"
+        if stderr:
+            output += f"*Errors:*\n```\n{stderr.strip()}\n```\n"
+        
+        if not output:
+            output = f"`{filename}` executed with no output."
+        elif stdout or stderr: # only add if there was output
+            output += "\n_Output also saved to `results.txt`_"
+            
+        send_message(chat_id, output)
+
+    except subprocess.TimeoutExpired:
+        process.kill()
+        send_message(chat_id, f"Error: Execution of `{filename}` timed out after 2 minutes.")
+    except Exception as e:
+        error_message = f"An error occurred while executing `{filename}`: {e}"
+        logging.error(error_message)
+        send_message(chat_id, error_message)
+
+
+def handle_e_command(chat_id, state):
+    """Handles the /e command to select a file for execution."""
+    project_context = state["contexts"].get(str(chat_id))
+    if not project_context:
+        send_message(chat_id, "No project context set. Please use `/set_project <project_name>` first.")
+        return
+
+    try:
+        files = [f for f in os.listdir(project_context) if os.path.isfile(os.path.join(project_context, f))]
+        if not files:
+            send_message(chat_id, "No files found in the current project.")
+            return
+
+        keyboard = {
+            "inline_keyboard": [[{"text": f, "callback_data": f"e_select:{f}"}] for f in files]
+        }
+        payload = {
+            'chat_id': chat_id,
+            'text': "Select a file to view and execute:",
+            'reply_markup': json.dumps(keyboard)
+        }
+        response = requests.post(f"{TELEGRAM_API_URL}/sendMessage", data=payload, timeout=30)
+        response.raise_for_status()
+    except Exception as e:
+        logging.error(f"Error creating file list for /e command: {e}")
+        send_message(chat_id, "An error occurred while listing files.")
+
+
 def handle_get_file(chat_id, text, state):
     """Handles the /file command."""
     parts = text.split()
@@ -345,8 +461,12 @@ def handle_get_file(chat_id, text, state):
 def send_file_with_content(chat_id, file_path):
     """Sends the file content and as a file attachment."""
     try:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            content = f.read()
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+        except UnicodeDecodeError:
+            with open(file_path, 'r', encoding='latin-1') as f:
+                content = f.read()
         
         # Check if it's a Markdown file
         if file_path.suffix.lower() == '.md':
@@ -370,7 +490,8 @@ def send_file_with_content(chat_id, file_path):
         send_file(chat_id, file_path)
     except Exception as e:
         logging.error(f"Error sending file with content: {e}")
-        send_message(chat_id, f"An error occurred while sending the file: {e}")
+        # If reading fails, just send the file as an attachment
+        send_file(chat_id, file_path)
 
 def handle_callback_query(callback_query, state):
     """Handles callback queries from inline keyboards."""
@@ -410,6 +531,71 @@ def handle_callback_query(callback_query, state):
             'chat_id': chat_id,
             'message_id': message_id,
             'text': "Please enter the name for the new project:",
+        }
+        requests.post(f"{TELEGRAM_API_URL}/editMessageText", data=payload)
+    elif data.startswith("e_select:"):
+        filename = data.split(":", 1)[1]
+        project_context = state["contexts"].get(chat_id)
+        if project_context:
+            file_path = Path(project_context) / filename
+            if file_path.is_file():
+                send_file_with_content(chat_id, file_path)
+                
+                keyboard = {
+                    "inline_keyboard": [
+                        [
+                            {"text": "Yes", "callback_data": f"e_params_yes:{filename}"},
+                            {"text": "No", "callback_data": f"e_params_no:{filename}"}
+                        ]
+                    ]
+                }
+                payload = {
+                    'chat_id': chat_id,
+                    'text': "Would you like to pass parameters?",
+                    'reply_markup': json.dumps(keyboard)
+                }
+                requests.post(f"{TELEGRAM_API_URL}/sendMessage", data=payload)
+            else:
+                send_message(chat_id, f"Error: File `{filename}` no longer exists.")
+        else:
+            send_message(chat_id, "Error: Project context not found.")
+        
+        payload = {
+            'chat_id': chat_id,
+            'message_id': message_id,
+            'text': f"Selected file: `{filename}`",
+            'parse_mode': 'Markdown'
+        }
+        requests.post(f"{TELEGRAM_API_URL}/editMessageText", data=payload)
+    elif data.startswith("e_params_no:"):
+        filename = data.split(":", 1)[1]
+        project_context = state["contexts"].get(chat_id)
+        if project_context:
+            execute_file(chat_id, project_context, filename, [])
+        else:
+            send_message(chat_id, "Error: Project context not found.")
+        
+        payload = {
+            'chat_id': chat_id,
+            'message_id': message_id,
+            'text': f"Executing `{filename}` without parameters...",
+            'parse_mode': 'Markdown'
+        }
+        requests.post(f"{TELEGRAM_API_URL}/editMessageText", data=payload)
+    elif data.startswith("e_params_yes:"):
+        filename = data.split(":", 1)[1]
+        state.setdefault("awaiting_input", {})[chat_id] = f"e_exec_params:{filename}"
+        
+        payload = {
+            'chat_id': chat_id,
+            'message_id': message_id,
+            'text': (
+                "To pass multiple parameters, separate them with spaces. "
+                "To include spaces within a single parameter, enclose it in double quotes "
+                '(e.g., `param1 "parameter two"`).\n\n'
+                f"Please reply with the parameters for `{filename}`:"
+            ),
+            'parse_mode': 'Markdown'
         }
         requests.post(f"{TELEGRAM_API_URL}/editMessageText", data=payload)
     
@@ -880,6 +1066,26 @@ def main():
                                 send_message(chat_id, "Invalid project name. Operation cancelled.")
                             save_state(state)
                             continue
+                        elif awaiting_input_type.startswith("exec_params:"):
+                            filename = awaiting_input_type.split(":", 1)[1]
+                            params = shlex.split(text.strip())
+                            project_context = state["contexts"].get(chat_id)
+                            if project_context:
+                                execute_file(chat_id, project_context, filename, params)
+                            else:
+                                send_message(chat_id, "Error: Project context not found.")
+                            save_state(state)
+                            continue
+                        elif awaiting_input_type.startswith("e_exec_params:"):
+                            filename = awaiting_input_type.split(":", 1)[1]
+                            params = shlex.split(text.strip())
+                            project_context = state["contexts"].get(chat_id)
+                            if project_context:
+                                execute_file(chat_id, project_context, filename, params)
+                            else:
+                                send_message(chat_id, "Error: Project context not found.")
+                            save_state(state)
+                            continue
                     else:  # User sent a command, cancel awaiting input
                         del state["awaiting_input"][chat_id]
                         send_message(chat_id, "Operation cancelled.")
@@ -895,6 +1101,8 @@ def main():
                     handle_new_project(chat_id, text, state)
                 elif text.startswith("/file") or text.startswith("/f"):
                     handle_get_file(chat_id, text, state)
+                elif text.startswith("/e"):
+                    handle_e_command(chat_id, state)
                 elif text == "/context":
                     handle_context_command(chat_id, state)
                 elif text == "/current_project":
