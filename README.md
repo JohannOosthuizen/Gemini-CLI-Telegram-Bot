@@ -83,3 +83,5 @@ pip install -r requirements.txt
 ![Page 2](https://github.com/JohannOosthuizen/Gemini-CLI-Telegram-Bot/blob/main/assets/Page-2.png)
 
 ![Page 3](https://github.com/JohannOosthuizen/Gemini-CLI-Telegram-Bot/blob/main/assets/Page-3.png)
+
+---
