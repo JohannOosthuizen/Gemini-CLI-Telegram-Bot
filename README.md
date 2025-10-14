@@ -68,7 +68,7 @@ Refine your `GEMINI.md` using the `/context` command for a high-quality project 
 ## 🚦 Installation & Setup
 
 ```bash
-git clone https://github.com/your-username/Gemini-CLI-Telegram-Bot.git
+git clone https://github.com/JohannOosthuizen/Gemini-CLI-Telegram-Bot.git
 cd Gemini-CLI-Telegram-Bot
 python -m venv venv
 source venv/bin/activate    # On Windows, use: venv\Scripts\activate
