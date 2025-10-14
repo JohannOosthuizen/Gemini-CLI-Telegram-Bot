@@ -45,10 +45,14 @@ from dotenv import load_dotenv
 import requests
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
+from google.cloud import speech
 
 # --- Configuration ---
 
 load_dotenv()  # Load environment variables from .env file
+
+# Set Google Cloud credentials
+os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "gcloud_credentials.json"
 
 # Enable or disable debug mode for Gemini CLI.
 DEBUG_MODE = False
@@ -1092,6 +1096,11 @@ def main():
                     save_state(state)
                     continue
 
+                if 'voice' in message:
+                    handle_voice_message(message, state)
+                    save_state(state)
+                    continue
+                    
                 text = message.get('text', '')
 
                 # --- Awaiting Input Handler ---
@@ -1167,6 +1176,73 @@ def main():
         except Exception as e:
             logging.critical(f"An unhandled error occurred in the main loop: {e}", exc_info=True)
             time.sleep(10)
+
+def handle_voice_message(message, state):
+    """Handles a voice message by transcribing it and passing it to Gemini."""
+    chat_id = str(message['chat']['id'])
+    project_context = state["contexts"].get(chat_id)
+    if not project_context:
+        send_message(chat_id, "No project context set. Please use `/set_project <project_name>` first.")
+        return
+
+    voice = message['voice']
+    file_id = voice['file_id']
+    
+    send_message(chat_id, "_Transcribing voice message..._")
+
+    try:
+        # Get file path from Telegram
+        file_info_res = requests.get(f"{TELEGRAM_API_URL}/getFile", params={'file_id': file_id})
+        file_info_res.raise_for_status()
+        file_info = file_info_res.json()['result']
+        file_url = f"https://api.telegram.org/file/bot{TELEGRAM_BOT_TOKEN}/{file_info['file_path']}"
+        
+        # Download the voice file using streaming to ensure it's complete
+        voice_content = bytearray()
+        with requests.get(file_url, stream=True) as r:
+            r.raise_for_status()
+            for chunk in r.iter_content(chunk_size=8192):
+                voice_content.extend(chunk)
+
+        # Save a copy of the voice file
+        voice_dir = Path(project_context) / "voice"
+        voice_dir.mkdir(exist_ok=True)
+        timestamp = time.strftime("%Y%m%d-%H%M%S")
+        # Get file extension from telegram file_path, default to .ogg
+        file_extension = Path(file_info['file_path']).suffix or '.ogg'
+        voice_filename = f"{timestamp}{file_extension}"
+        voice_filepath = voice_dir / voice_filename
+        with open(voice_filepath, 'wb') as f:
+            f.write(voice_content)
+        logging.info(f"Saved voice message to: {voice_filepath}")
+
+        # Transcribe using Google Speech-to-Text
+        client = speech.SpeechClient()
+        audio = speech.RecognitionAudio(content=bytes(voice_content))
+        config = speech.RecognitionConfig(
+            encoding=speech.RecognitionConfig.AudioEncoding.OGG_OPUS,
+            sample_rate_hertz=48000,
+            language_code="en-US",
+        )
+        
+        response = client.recognize(config=config, audio=audio)
+        
+        if not response.results or not response.results[0].alternatives:
+            send_message(chat_id, "Could not understand the audio. Please try again.")
+            return
+
+        transcript = response.results[0].alternatives[0].transcript
+        
+        # Send transcript to user and process as a prompt
+        send_message(chat_id, f"Heard: \"_{transcript}_\"")
+        handle_gemini_prompt(chat_id, transcript, state)
+
+    except requests.exceptions.RequestException as e:
+        logging.error(f"Error downloading voice file: {e}")
+        send_message(chat_id, "Error downloading voice file for transcription.")
+    except Exception as e:
+        logging.error(f"An error occurred during speech-to-text: {e}", exc_info=True)
+        send_message(chat_id, "An error occurred during transcription.")
 
 if __name__ == "__main__":
     main()
