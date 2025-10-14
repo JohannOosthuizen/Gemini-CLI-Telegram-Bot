@@ -57,6 +57,19 @@ Refine your `GEMINI.md` using the `/context` command for a high-quality project 
 
 ---
 
+
+##    Pictures
+
+![Page 1](assets/Page-1.png)
+
+![Page 2](assets/Page-2.png)
+
+![Page 3](assets/Page-3.png)
+
+
+---
+
+
 ## 🧰 Prerequisites
 
 - Python **3.6+**
@@ -76,14 +89,4 @@ pip install -r requirements.txt
 
 ---
 
-
-##    Pictures
-
-![Page 1](assets/Page-1.png)
-
-![Page 2](assets/Page-2.png)
-
-![Page 3](assets/Page-3.png)
-
----
 
