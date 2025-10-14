@@ -116,12 +116,30 @@ def save_state(state):
 # --- Telegram API Helpers ---
 
 def format_for_telegram(text):
-    """Formats text for Telegram's MarkdownV1."""
-    # Headers to bold
-    text = re.sub(r'^# (.*?)$', r'*\1*', text, flags=re.MULTILINE)
-    text = re.sub(r'^## (.*?)$', r'*\1*', text, flags=re.MULTILINE)
-    text = re.sub(r'^### (.*?)$', r'*\1*', text, flags=re.MULTILINE)
-    return text
+    """Formats text for Telegram's MarkdownV1, handling GFM features and escaping."""
+    # Split by code blocks and inline code to avoid modifying them
+    parts = re.split(r'(```[\s\S]*?```|`[^`]*?`)', text)
+
+    for i in range(0, len(parts), 2):  # Process parts outside code blocks
+        part = parts[i]
+
+        # Convert GFM bold `**text**` to MarkdownV1 `*text*`
+        part = re.sub(r'\*\*(.*?)\*\*', r'*\1*', part)
+
+        # Escape underscores `_` to prevent them from being interpreted as italics
+        part = part.replace('_', r'\_')
+
+        # MarkdownV1 doesn't support lists. Let's convert `* ` to a bullet point.
+        part = re.sub(r'^\s*\*\s+', '• ', part, flags=re.MULTILINE)
+
+        # Headers to bold
+        part = re.sub(r'^# (.*?)$', r'*\1*', part, flags=re.MULTILINE)
+        part = re.sub(r'^## (.*?)$', r'*\1*', part, flags=re.MULTILINE)
+        part = re.sub(r'^### (.*?)$', r'*\1*', part, flags=re.MULTILINE)
+
+        parts[i] = part
+
+    return "".join(parts)
 
 def break_sentences_into_lines(text):
     """Adds a newline after each sentence, preserving code blocks."""
