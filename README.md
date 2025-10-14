@@ -73,3 +73,11 @@ cd Gemini-CLI-Telegram-Bot
 python -m venv venv
 source venv/bin/activate    # On Windows, use: venv\Scripts\activate
 pip install -r requirements.txt
+
+## Pictures
+
+https://github.com/JohannOosthuizen/Gemini-CLI-Telegram-Bot/blob/main/assets/Page-1.png
+
+https://github.com/JohannOosthuizen/Gemini-CLI-Telegram-Bot/blob/main/assets/Page-2.png
+
+https://github.com/JohannOosthuizen/Gemini-CLI-Telegram-Bot/blob/main/assets/Page-3.png
