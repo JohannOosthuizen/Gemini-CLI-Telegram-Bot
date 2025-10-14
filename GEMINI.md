@@ -8,6 +8,8 @@ This is a Python-based Telegram bot that acts as a remote interface for the Gemi
 - **Project Context Management:**
     - Switch between different project directories.
     - Create new projects on the fly.
+- **Speech-to-Text Transcription:** Transcribe voice messages into prompts by simply sending a voice note to the bot.
+- **Remote Code Execution:** Execute scripts (`.py`, `.sh`, etc.) within the project context using the `/e` command.
 - **Intelligent Context Refinement:** A user-controlled workflow to keep project requirements (`GEMINI.md`) concise and up-to-date.
 - **Proactive Reminders:** The bot periodically suggests refining the context to prevent bloat.
 - **Real-time File System Monitoring:** The bot monitors the current project directory for file changes (creations, deletions, modifications) and sends instant notifications to your chat, keeping you aware of the agent's activities.
@@ -32,6 +34,7 @@ The `/context` command and periodic reminders are designed to help you maintain 
 - `/set_project <project_name> [initial_prompt]`: Sets the current working directory to an existing project. You can optionally provide an initial prompt to be executed immediately.
 - `/new_project <project_name> [initial_prompt]`: Creates a new project directory and sets it as the current context. You can optionally provide an initial prompt to be executed immediately.
 - `/file <filename>`: Sends the specified file from the current project directory to the chat.
+- `/e`: Select a script to execute within the project, with an option to add parameters.
 - `/current_project`: Displays the path of the current project context.
 - `/context`: Initiates the workflow to refine the `GEMINI.md` file. The bot will send the current version, propose an AI-consolidated version, and you can then **Accept**, **Suggest Edits**, **Decline**, or **Upload** your own version.
 
